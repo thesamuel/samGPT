@@ -1,4 +1,4 @@
-from math import inf
+from math import inf, sqrt
 
 import torch
 from torch import nn
@@ -16,7 +16,7 @@ value = nn.Linear(C, head_size, bias=False)
 
 k = key(x)
 q = query(x)
-wei = q @ k.transpose(-2, -1)  # (B, T, head_size) @ (B, 16, T) -> (B, T, T)
+wei = q @ k.transpose(-2, -1) * head_size ** -0.5  # (B, T, head_size) @ (B, 16, T) -> (B, T, T)
 
 tril = torch.tril(torch.ones(T, T))
 wei = wei.masked_fill(tril == 0, -inf)
