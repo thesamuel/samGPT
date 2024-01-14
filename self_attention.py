@@ -30,8 +30,8 @@ class SelfAttentionHead(nn.Module):
         wei = F.softmax(wei, dim=-1)  # (B, T, T)
 
         # Perform weighted aggregation of the values
-        v = self.value(x)  # (B, T, C)
-        return wei @ v  # (B, T, head_size)
+        v = self.value(x)  # (B, T, head_size)
+        return wei @ v  # (B, T, T) @ (B, T, C) -> (B, T, head_size)
 
 
 def test_self_attention():
