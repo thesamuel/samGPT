@@ -24,7 +24,7 @@ class LanguageModel(nn.Module):
 
         x = tok_emb + pos_emb  # (B, T, C)
         x = self.sa_head(x)  # Apply one head of self attention (B, T, C)
-        logits = self.lm_head  # (B, T, vocab_size)
+        logits = self.lm_head(x)  # (B, T, vocab_size)
 
         if targets is None:
             loss = None
