@@ -13,7 +13,7 @@ class SelfAttentionHead(nn.Module):
         self.key = nn.Linear(self.n_embd, self.head_size, bias=False)
         self.query = nn.Linear(self.n_embd, self.head_size, bias=False)
         self.value = nn.Linear(self.n_embd, self.head_size, bias=False)
-        self.register_buffer('tril', torch.tril(torch.ones(block_size, block_size)))
+        self.register_buffer("tril", torch.tril(torch.ones(block_size, block_size)))
 
     def forward(self, x):
         B, T, C = x.shape
@@ -25,7 +25,9 @@ class SelfAttentionHead(nn.Module):
         q = self.query(x)  # (B, T, C)
 
         # Compute attention scores ("affinities")
-        wei = q @ k.transpose(-2, -1) * self.head_size ** -0.5  # (B, T, C) @ (B, C, T) -> (B, T, T)
+        wei = (
+            q @ k.transpose(-2, -1) * self.head_size**-0.5
+        )  # (B, T, C) @ (B, C, T) -> (B, T, T)
         wei = wei.masked_fill(self.tril[:T, :T] == 0, -inf)  # B, T, T
         wei = F.softmax(wei, dim=-1)  # (B, T, T)
 

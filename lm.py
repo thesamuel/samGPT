@@ -7,15 +7,21 @@ import torch
 
 
 class LanguageModel(nn.Module):
-    def __init__(self, vocab_size: int, block_size: int, n_embd: int, ):
+    def __init__(self, vocab_size: int, block_size: int, n_embd: int):
         super().__init__()
         self.block_size = block_size
         self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
         self.position_embedding_table = nn.Embedding(self.block_size, n_embd)
-        self.sa_head = SelfAttentionHead(head_size=n_embd, n_embd=n_embd, block_size=self.block_size)
+        self.sa_head = SelfAttentionHead(
+            head_size=n_embd, n_embd=n_embd, block_size=self.block_size
+        )
         self.lm_head = nn.Linear(n_embd, vocab_size)
 
-    def forward(self, x: torch.Tensor, targets: Optional[torch.Tensor] = None) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(
+        self,
+        x: torch.Tensor,
+        targets: Optional[torch.Tensor] = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         B, T = x.shape
 
         tok_emb = self.token_embedding_table(x)  # (B, T, C)
@@ -41,7 +47,7 @@ class LanguageModel(nn.Module):
         out = x
         for _ in range(max_new_tokens):
             # Call the model with the previous block size of tokens
-            x_cond = out[:, -self.block_size:]
+            x_cond = out[:, -self.block_size :]
             logits, _ = self(x_cond)
 
             # The final row of the model output corresponds to the next token, so we slice to just that row
