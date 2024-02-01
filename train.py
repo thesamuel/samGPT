@@ -1,49 +1,11 @@
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from torch import nn
 
+from datasets import TokenDataset
 from lm import LanguageModel
-
-
-class CharacterTokenizer:
-    vocab: list[str]
-
-    # TODO: support passing in a corpus
-    def __init__(self, text: str):
-        self.vocab = sorted(list(set(text)))
-
-        # String to integer mapping
-        self.stoi = {c: i for i, c in enumerate(self.vocab)}
-
-    def __len__(self):
-        return len(self.vocab)
-
-    def __getitem__(self, item: int):
-        return self.vocab[item]
-
-    def encode(self, text: str) -> list[int]:
-        return [self.stoi[c] for c in text]
-
-    def decode(self, tokens: list[int]) -> str:
-        return "".join(self.vocab[i] for i in tokens)
-
-
-class TokenDataset(Dataset):
-    def __init__(self, tokens: torch.Tensor, block_size: int):
-        assert tokens.dtype == torch.long
-        self.tokens = tokens
-        self.block_size = block_size
-
-    def __len__(self) -> int:
-        return len(self.tokens) // (self.block_size + 1)
-
-    def __getitem__(self, i: int) -> tuple[torch.Tensor, torch.Tensor]:
-        x = self.tokens[i : i + self.block_size]
-        y = self.tokens[i + 1 : i + self.block_size + 1]
-
-        # TODO: figure out why the default collate function does weird batching when we don't return tensors
-        return x, y
+from tokenizers import CharacterTokenizer
 
 
 def load_text(input_file: str) -> str:
@@ -83,6 +45,7 @@ def main(
     learning_rate: float = 1e-3,
     device="cuda" if torch.cuda.is_available() else "cpu",
 ):
+    # TODO: for big data, we shouldn't load it into memory
     text = load_text(text_file)
 
     # Train the tokenizer on our text
