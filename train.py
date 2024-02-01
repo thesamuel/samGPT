@@ -91,6 +91,9 @@ def main(
         print("Epoch:", epoch)
         train_loop(train_loader, model, optimizer, eval_interval=eval_interval)
 
+    empty_context = torch.zeros((1, 1), dtype=torch.long, device=device)
+    print(tokenizer.decode(model.generate(empty_context, max_new_tokens=500)[0].tolist()))
+
 
 if __name__ == "__main__":
     main()
