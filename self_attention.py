@@ -5,6 +5,23 @@ from torch import nn
 from torch.nn import functional as F
 
 
+class MultiHeadSelfAttention(nn.Module):
+    def __init__(self, num_heads: int, head_size: int, n_embd: int, block_size: int):
+        super().__init__()
+        self.heads = nn.ModuleList(
+            [
+                SelfAttentionHead(
+                    head_size=head_size, n_embd=n_embd, block_size=block_size
+                )
+                for _ in range(num_heads)
+            ]
+        )
+
+    def forward(self, x):
+        # TODO: parallelize this
+        return torch.cat([head(x) for head in self.heads], dim=-1)
+
+
 class SelfAttentionHead(nn.Module):
     def __init__(self, head_size: int, n_embd: int, block_size: int):
         super().__init__()
@@ -24,7 +41,7 @@ class SelfAttentionHead(nn.Module):
         k = self.key(x)  # (B, T, C)
         q = self.query(x)  # (B, T, C)
 
-        # Compute attention scores ("affinities")
+        # Compute attention scores ("affinities"), scaled by head size
         wei = (
             q @ k.transpose(-2, -1) * self.head_size**-0.5
         )  # (B, T, C) @ (B, C, T) -> (B, T, T)
