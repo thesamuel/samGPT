@@ -82,7 +82,7 @@ def main(
     # TODO: verify that this works on GPU
     with torch.device(device):
         model = LanguageModel(
-            vocab_size=len(tokenizer), block_size=block_size, n_embd=n_embd
+            vocab_size=len(tokenizer), block_size=block_size, n_embd=n_embd, n_head=4
         )
 
     optimizer = AdamW(model.parameters(), lr=learning_rate)

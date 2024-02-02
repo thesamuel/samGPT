@@ -7,13 +7,13 @@ import torch
 
 
 class LanguageModel(nn.Module):
-    def __init__(self, vocab_size: int, block_size: int, n_embd: int):
+    def __init__(self, vocab_size: int, block_size: int, n_embd: int, n_head: int = 1):
         super().__init__()
         self.block_size = block_size
         self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
         self.position_embedding_table = nn.Embedding(self.block_size, n_embd)
         self.sa_head = SelfAttentionHead(
-            head_size=n_embd, n_embd=n_embd, block_size=self.block_size
+            n_embd=n_embd, block_size=self.block_size, n_head=n_head
         )
         self.lm_head = nn.Linear(n_embd, vocab_size)
 
