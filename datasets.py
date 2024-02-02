@@ -4,7 +4,7 @@ from torch.utils.data import Dataset
 
 class TokenDataset(Dataset):
     def __init__(self, tokens: torch.Tensor, block_size: int):
-        assert tokens.dtype == torch.long
+        # assert tokens.dtype == torch.long
         self.tokens = tokens
         self.block_size = block_size
 

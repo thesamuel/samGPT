@@ -18,11 +18,12 @@ def train_loop(
     model: nn.Module,
     optimizer: torch.optim.Optimizer,
     eval_interval: int,
+    device: str,
 ):
     size = len(dataloader.dataset)
     model.train()
     for batch_i, (batch_x, batch_y) in enumerate(dataloader):
-        logits, loss = model(batch_x, batch_y)
+        logits, loss = model(batch_x.to(device), batch_y.to(device))
 
         if batch_i % eval_interval == 0:
             print(f"Batch {batch_i * len(batch_x)}/{size} Loss: {loss.item()}")
@@ -43,7 +44,7 @@ def main(
     eval_interval: int = 100,
     epochs: int = 3,
     learning_rate: float = 1e-3,
-    device="cuda" if torch.cuda.is_available() else "cpu",
+    device: str = "cpu",
 ):
     # TODO: for big data, we shouldn't load it into memory
     text = load_text(text_file)
@@ -67,7 +68,7 @@ def main(
         train_dataset,
         batch_size=batch_size,
         shuffle=True,
-        pin_memory=True,
+        pin_memory=True,  # NOTE: this is not supported on MPS
         num_workers=num_workers,
     )
 
@@ -80,19 +81,27 @@ def main(
     )
 
     # TODO: verify that this works on GPU
-    with torch.device(device):
-        model = LanguageModel(
-            vocab_size=len(tokenizer), block_size=block_size, n_embd=n_embd, n_head=4
-        )
+    model = LanguageModel(
+        vocab_size=len(tokenizer), block_size=block_size, n_embd=n_embd, n_head=4
+    )
+    model.to(device)
 
     optimizer = AdamW(model.parameters(), lr=learning_rate)
 
     for epoch in range(epochs):
         print("Epoch:", epoch)
-        train_loop(train_loader, model, optimizer, eval_interval=eval_interval)
+        train_loop(
+            train_loader,
+            model,
+            optimizer,
+            eval_interval=eval_interval,
+            device=device,
+        )
 
     empty_context = torch.zeros((1, 1), dtype=torch.long, device=device)
-    print(tokenizer.decode(model.generate(empty_context, max_new_tokens=500)[0].tolist()))
+    print(
+        tokenizer.decode(model.generate(empty_context, max_new_tokens=500)[0].tolist())
+    )
 
 
 if __name__ == "__main__":
