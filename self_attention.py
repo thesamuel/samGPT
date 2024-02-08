@@ -15,7 +15,7 @@ class SelfAttentionHead(nn.Module):
         self.register_buffer("tril", torch.tril(torch.ones(block_size, block_size)))
 
     def forward(self, x):
-        # TODO: should I add more shape assertions throughout instead of comments?
+        # TODO: add more shape assertions throughout
         B, T, C = x.shape
 
         # C must equal the n_embd of the key, query, and value vectors

@@ -1,11 +1,23 @@
-import torch
-from torch.utils.data import DataLoader
-from torch.optim import AdamW
-from torch import nn
+import random
+from collections.abc import Sized
+from itertools import islice
+from pathlib import Path
 
-from datasets import TokenDataset
+import numpy as np
+import torch
+from torch import nn
+from torch.optim import AdamW
+from torch.utils.data import DataLoader
+
+from datasets import TokenizerDataset, DolmaDataset
 from lm import LanguageModel
 from tokenizers import CharacterTokenizer
+
+
+def set_seed(seed: int = 42):
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
 
 
 def load_text(input_file: str) -> str:
@@ -20,13 +32,16 @@ def train_loop(
     eval_interval: int,
     device: str,
 ):
-    size = len(dataloader.dataset)
+    size = len(dataloader.dataset) if isinstance(dataloader.dataset, Sized) else None
+
     model.train()
     for batch_i, (batch_x, batch_y) in enumerate(dataloader):
         logits, loss = model(batch_x.to(device), batch_y.to(device))
 
         if batch_i % eval_interval == 0:
-            print(f"Batch {batch_i * len(batch_x)}/{size} Loss: {loss.item()}")
+            print(
+                f"Batch {batch_i * len(batch_x)}/{size or 'unknown'} Loss: {loss.item()}"
+            )
 
         # Backpropagation
         loss.backward()
@@ -46,30 +61,33 @@ def main(
     learning_rate: float = 1e-3,
     device: str = "cpu",
 ):
-    # TODO: for big data, we shouldn't load it into memory
-    text = load_text(text_file)
+    # Set seeds for reproducibility
+    set_seed(42)
 
+    # Initialize Dolma Datasets
+    dolma_path = Path("data/dolma")
+    datasets = {}
+    for split in ["train", "val", "test"]:
+        datasets[split] = DolmaDataset(dolma_path / split, shuffle=True)
+
+    # TODO: increase number of tokenizer training examples, implement BPE tokenizer
     # Train the tokenizer on our text
-    tokenizer = CharacterTokenizer(text)
-    print("Vocab:", tokenizer.vocab)
+    tokenizer_train = list(islice(iter(datasets["train"]), 10_000))
+    tokenizer = CharacterTokenizer(tokenizer_train)
+    print("Vocab:", tokenizer.vocab[:100])
 
-    # Encode our text and convert to a tensor
-    data = torch.tensor(tokenizer.encode(text), dtype=torch.long)
-    print("Tokens:", data[:100])
-
-    # Create a validation set
-    n = int(train_pct * len(data))
-    train = data[:n]
-    # TODO: create validation loader
-    val = data[n:]
-
-    train_dataset = TokenDataset(train, block_size=block_size)
+    # Create a dataset that streams to tokens
+    train_dataset = TokenizerDataset(
+        text_dataset=datasets["train"],
+        tokenizer=tokenizer,
+        block_size=block_size,
+    )
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
-        shuffle=True,
-        pin_memory=True,  # NOTE: this is not supported on MPS
+        pin_memory=True,  # NOTE: this is not supported on MPS (Mac accelerated training)
         num_workers=num_workers,
+        # NOTE: we don't specify a shuffle parameter since we use a streaming dataset with imperfect shuffling above
     )
 
     # Print a sample instance
@@ -80,12 +98,13 @@ def main(
         y = {sample_train_batch[1][0]}"""
     )
 
-    # TODO: verify that this works on GPU
     model = LanguageModel(
-        vocab_size=len(tokenizer), block_size=block_size, n_embd=n_embd, n_head=4
+        vocab_size=len(tokenizer),
+        block_size=block_size,
+        n_embd=n_embd,
+        n_head=4,
     )
     model.to(device)
-
     optimizer = AdamW(model.parameters(), lr=learning_rate)
 
     for epoch in range(epochs):

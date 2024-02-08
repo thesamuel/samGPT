@@ -71,7 +71,6 @@ class LanguageModel(nn.Module):
         B, T = x.shape
 
         tok_emb = self.token_embedding_table(x)  # (B, T, C)
-        # TODO: do we need to use a device here?
         pos_emb = self.position_embedding_table(self.arange[:T])
 
         x = tok_emb + pos_emb  # (B, T, C)
