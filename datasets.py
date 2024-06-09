@@ -1,10 +1,11 @@
-import random
-from pathlib import Path
-from typing import Iterable
-
 import pandas as pd
 import torch
-from torch.utils.data import Dataset, IterableDataset
+from torch.utils.data import (
+    Dataset,
+    functional_datapipe,
+    IterDataPipe,
+    datapipes as dp,
+)
 
 from tokenizers import Tokenizer
 
@@ -26,19 +27,15 @@ class TokenDataset(Dataset):
         return x, y
 
 
-class TokenizerDataset(IterableDataset):
-    def __init__(
-        self,
-        text_dataset: IterableDataset,
-        tokenizer: Tokenizer,
-        block_size: int,
-    ):
-        self.text_dataset = text_dataset
+@functional_datapipe("tokenize")
+class TokenizerDataset(IterDataPipe):
+    def __init__(self, dp: IterDataPipe, tokenizer: Tokenizer, block_size: int) -> None:
+        self.dp = dp
         self.tokenizer = tokenizer
         self.block_size = block_size
 
     def __iter__(self):
-        for document in iter(self.text_dataset):
+        for document in self.dp:
             tokens = self.tokenizer.encode(document)
             # TODO: append BOS/EOS
             x = tokens[: self.block_size]
@@ -52,29 +49,19 @@ class TokenizerDataset(IterableDataset):
             yield torch.tensor(x, dtype=torch.long), torch.tensor(y, dtype=torch.long)
 
 
-class DolmaDataset(IterableDataset):
-    def __init__(self, dolma_dir: Path, shuffle: bool):
-        """
-        Creates a DolmaDataset
+def read_file(file):
+    return pd.read_json(file, lines=True)["text"].tolist()
 
-        :param dolma_dir: directory containing dolma json.gz files
-        :param shuffle: Enables approximate shuffling which will shuffle the shards and the examples within each shard
-        """
 
-        # TODO: support multiple workers by dividing up shards
-        self.shard_paths = sorted(dolma_dir.glob("*.json.gz"))
-        self.shuffle = shuffle
+def load_dolma(root: str, file_shuffle_buffer: int = 1, text_col: str = "text"):
+    datapipe = dp.iter.FileLister(root, recursive=True, masks="*.json.gz")
+    return (
+        datapipe.shuffle(buffer_size=file_shuffle_buffer)
+        .sharding_filter()
+        .map(read_file)
+        .unbatch()
+    )
 
-    def __iter__(self) -> Iterable[str]:
-        shard_paths = (
-            random.sample(self.shard_paths, k=len(self.shard_paths))
-            if self.shuffle
-            else self.shard_paths
-        )
-        for shard_path in shard_paths:
-            print(f"Loading shard from {shard_path}...")
-            shard = pd.read_json(shard_path, lines=True)
-            if self.shuffle:
-                print(f"Shuffling shard {shard_path}...")
-                shard = shard.sample(frac=1)
-            yield from shard["text"]
+
+def test_functional_dataset():
+    print(next(iter(load_dolma("data/dolma/dolma-v1_6-8B-sample"))))

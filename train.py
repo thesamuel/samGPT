@@ -1,17 +1,16 @@
 import random
-from collections.abc import Sized
+import timeit
 from itertools import islice
-from pathlib import Path
+from typing import Optional
 
 import numpy as np
 import torch
-from torch import nn
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
 
-from datasets import TokenizerDataset, DolmaDataset
+from datasets import load_dolma
 from lm import LanguageModel
-from tokenizers import CharacterTokenizer
+from tokenizers import CharacterTokenizer, Tokenizer
 
 
 def set_seed(seed: int = 42):
@@ -20,28 +19,36 @@ def set_seed(seed: int = 42):
     random.seed(seed)
 
 
-def load_text(input_file: str) -> str:
-    with open(input_file) as f:
-        return f.read()
+def show_generations(model: LanguageModel, tokenizer: Tokenizer, device: str):
+    with torch.no_grad():
+        empty_context = torch.zeros((1, 1), dtype=torch.long, device=device)
+        start_time = timeit.default_timer()
+        generation = tokenizer.decode(
+            model.generate(empty_context, max_new_tokens=500)[0].tolist()
+        )
+        elapsed = timeit.default_timer() - start_time
+        print(f"Generation (took {elapsed:3f} seconds):", generation)
 
 
 def train_loop(
     dataloader: DataLoader,
-    model: nn.Module,
+    model: LanguageModel,
     optimizer: torch.optim.Optimizer,
     eval_interval: int,
     device: str,
+    tokenizer: Optional[Tokenizer] = None,
+    generate_at_eval: bool = True,
 ):
-    size = len(dataloader.dataset) if isinstance(dataloader.dataset, Sized) else None
-
     model.train()
     for batch_i, (batch_x, batch_y) in enumerate(dataloader):
         logits, loss = model(batch_x.to(device), batch_y.to(device))
 
         if batch_i % eval_interval == 0:
-            print(
-                f"Batch {batch_i * len(batch_x)}/{size or 'unknown'} Loss: {loss.item()}"
-            )
+            print(f"Batch {batch_i * len(batch_x)}, Loss: {loss.item()}")
+            if generate_at_eval and tokenizer:
+                model.eval()
+                show_generations(model, tokenizer, device)
+                model.train()
 
         # Backpropagation
         loss.backward()
@@ -50,12 +57,10 @@ def train_loop(
 
 
 def main(
-    text_file: str = "data/shakespeare.txt",
-    train_pct: float = 0.9,
-    block_size=32,
+    block_size: int = 32,
     batch_size: int = 16,
-    num_workers: int = 0,
     n_embd: int = 64,
+    num_workers: int = 4,
     eval_interval: int = 100,
     epochs: int = 3,
     learning_rate: float = 1e-3,
@@ -65,29 +70,23 @@ def main(
     set_seed(42)
 
     # Initialize Dolma Datasets
-    dolma_path = Path("data/dolma")
-    datasets = {}
-    for split in ["train", "val", "test"]:
-        datasets[split] = DolmaDataset(dolma_path / split, shuffle=True)
+    dolma_datapipe = load_dolma("data/dolma/dolma-v1_6-8B-sample")
 
     # TODO: increase number of tokenizer training examples, implement BPE tokenizer
     # Train the tokenizer on our text
-    tokenizer_train = list(islice(iter(datasets["train"]), 10_000))
+    tokenizer_train = list(islice(iter(dolma_datapipe), 10_000))
     tokenizer = CharacterTokenizer(tokenizer_train)
     print("Vocab:", tokenizer.vocab[:100])
 
     # Create a dataset that streams to tokens
-    train_dataset = TokenizerDataset(
-        text_dataset=datasets["train"],
-        tokenizer=tokenizer,
-        block_size=block_size,
+    tokenized_datapipe = dolma_datapipe.tokenize(
+        tokenizer=tokenizer, block_size=block_size
     )
     train_loader = DataLoader(
-        train_dataset,
+        tokenized_datapipe,
         batch_size=batch_size,
         pin_memory=True,  # NOTE: this is not supported on MPS (Mac accelerated training)
         num_workers=num_workers,
-        # NOTE: we don't specify a shuffle parameter since we use a streaming dataset with imperfect shuffling above
     )
 
     # Print a sample instance
@@ -114,6 +113,7 @@ def main(
             model,
             optimizer,
             eval_interval=eval_interval,
+            tokenizer=tokenizer,
             device=device,
         )
 
