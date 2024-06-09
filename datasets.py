@@ -1,11 +1,9 @@
 import pandas as pd
 import torch
-from torch.utils.data import (
-    Dataset,
-    functional_datapipe,
-    IterDataPipe,
-    datapipes as dp,
-)
+import torchdata.datapipes as dp
+from torch.utils.data import Dataset
+from torchdata.datapipes import functional_datapipe
+from torchdata.datapipes.iter import IterDataPipe
 
 from tokenizers import Tokenizer
 
@@ -49,19 +47,30 @@ class TokenizerDataset(IterDataPipe):
             yield torch.tensor(x, dtype=torch.long), torch.tensor(y, dtype=torch.long)
 
 
-def read_file(file):
-    return pd.read_json(file, lines=True)["text"].tolist()
+@functional_datapipe("read_jsonlines")
+class JsonLinesIterDataPipe(IterDataPipe):
+    def __init__(self, dp: IterDataPipe) -> None:
+        self.dp = dp
+
+    def __iter__(self):
+        for file in self.dp:
+            # TODO: have this return records instead of the specific column we want
+            yield pd.read_json(file, lines=True)["text"].tolist()
 
 
-def load_dolma(root: str, file_shuffle_buffer: int = 1, text_col: str = "text"):
-    datapipe = dp.iter.FileLister(root, recursive=True, masks="*.json.gz")
+def load_dolma(root: str, file_shuffle_buffer: int = 1, prefetch_buffer: int = 2):
     return (
-        datapipe.shuffle(buffer_size=file_shuffle_buffer)
-        .sharding_filter()
-        .map(read_file)
+        dp.iter.FileLister(root, recursive=True, masks="*.json.gz")
+        .shuffle(buffer_size=file_shuffle_buffer)
+        .sharding_filter()  # Shard after shuffling
+        .read_jsonlines()
+        .prefetch(prefetch_buffer)  # Prefetch N files to avoid GPU starvation
         .unbatch()
     )
 
 
 def test_functional_dataset():
-    print(next(iter(load_dolma("data/dolma/dolma-v1_6-8B-sample"))))
+    first_row = next(iter(load_dolma("data/dolma/v1_6-sample")))
+    print(first_row)
+    assert isinstance(first_row, str)
+    assert first_row.startswith("LABOR'S MARTYRS")
