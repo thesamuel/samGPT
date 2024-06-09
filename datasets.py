@@ -26,7 +26,7 @@ class TokenDataset(Dataset):
 
 
 @functional_datapipe("tokenize")
-class TokenizerDataset(IterDataPipe):
+class TokenizerIterDataPipe(IterDataPipe):
     def __init__(self, dp: IterDataPipe, tokenizer: Tokenizer, block_size: int) -> None:
         self.dp = dp
         self.tokenizer = tokenizer
@@ -64,6 +64,7 @@ def load_dolma(root: str, file_shuffle_buffer: int = 1, prefetch_buffer: int = 2
         .shuffle(buffer_size=file_shuffle_buffer)
         .sharding_filter()  # Shard after shuffling
         .read_jsonlines()
+        # TODO: figure out why there is still occasional starvation
         .prefetch(prefetch_buffer)  # Prefetch N files to avoid GPU starvation
         .unbatch()
     )
