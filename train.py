@@ -40,6 +40,8 @@ def train_loop(
     generate_at_eval: bool = True,
 ):
     model.train()
+    batch_x: torch.Tensor
+    batch_y: torch.Tensor
     for batch_i, (batch_x, batch_y) in enumerate(dataloader):
         logits, loss = model(batch_x.to(device), batch_y.to(device))
 
