@@ -3,10 +3,12 @@ import timeit
 from itertools import islice
 from typing import Optional
 
+import fire
 import numpy as np
 import torch
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 from datasets import load_dolma
 from lm import LanguageModel
@@ -19,60 +21,77 @@ def set_seed(seed: int = 42):
     random.seed(seed)
 
 
-def show_generations(model: LanguageModel, tokenizer: Tokenizer, device: str):
-    with torch.no_grad():
-        empty_context = torch.zeros((1, 1), dtype=torch.long, device=device)
-        start_time = timeit.default_timer()
-        generation = tokenizer.decode(
-            model.generate(empty_context, max_new_tokens=500)[0].tolist()
-        )
-        elapsed = timeit.default_timer() - start_time
-        print(f"Generation (took {elapsed:3f} seconds):", generation)
-
-
 def train_loop(
     dataloader: DataLoader,
     model: LanguageModel,
     optimizer: torch.optim.Optimizer,
     eval_interval: int,
-    device: str,
+    device: torch.device,
+    max_steps: Optional[int] = None,
     tokenizer: Optional[Tokenizer] = None,
     generate_at_eval: bool = True,
 ):
     model.train()
     batch_x: torch.Tensor
     batch_y: torch.Tensor
-    for batch_i, (batch_x, batch_y) in enumerate(dataloader):
+    pbar = tqdm(dataloader, total=max_steps)
+    for batch_i, (batch_x, batch_y) in enumerate(pbar):
+        start_time = timeit.default_timer()
         logits, loss = model(batch_x.to(device), batch_y.to(device))
-
-        if batch_i % eval_interval == 0:
-            print(f"Batch {batch_i * len(batch_x)}, Loss: {loss.item()}")
-            if generate_at_eval and tokenizer:
-                model.eval()
-                show_generations(model, tokenizer, device)
-                model.train()
 
         # Backpropagation
         loss.backward()
         optimizer.step()
         optimizer.zero_grad(set_to_none=True)
+        elapsed = timeit.default_timer() - start_time
+        pbar.set_description(f"Batch time: {elapsed:3f}")
+
+        if batch_i % eval_interval == 0:
+            print(f"Batch {batch_i * len(batch_x)}, Loss: {loss.item()}")
+            if generate_at_eval and tokenizer:
+                model.eval()
+                with torch.no_grad():
+                    empty_context = torch.zeros((1, 1), dtype=torch.long, device=device)
+                    start_time = timeit.default_timer()
+                    generation = tokenizer.decode(
+                        model.generate(empty_context, max_new_tokens=500)[0].tolist()
+                    )
+                    elapsed = timeit.default_timer() - start_time
+                    pbar.write(f"Generation (took {elapsed:3f} seconds): {generation}")
+                model.train()
+
+        if batch_i >= max_steps:
+            break
 
 
 def main(
     block_size: int = 32,
-    batch_size: int = 16,
+    batch_size: int = 192,
+    max_steps: Optional[int] = 10_000,
     n_embd: int = 64,
     num_workers: int = 4,
-    eval_interval: int = 100,
+    eval_interval: int = 1_000,
+    generate_at_eval: bool = True,
     epochs: int = 3,
     learning_rate: float = 1e-3,
-    device: str = "cpu",
 ):
+    print(
+        "Training with arguments:",
+        f"{block_size=} {batch_size=} {max_steps=} {n_embd=} {num_workers=} {eval_interval=} {generate_at_eval=}",
+    )
+
+    # Check if cuda is available:
+    if torch.cuda.is_available():
+        print("Using CUDA")
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
+
     # Set seeds for reproducibility
     set_seed(42)
 
     # Initialize Dolma Datasets
-    dolma_datapipe = load_dolma("data/dolma/dolma-v1_6-8B-sample")
+    dolma_datapipe = load_dolma("data/dolma/v1_6-sample")
 
     # TODO: increase number of tokenizer training examples, implement BPE tokenizer
     # Train the tokenizer on our text
@@ -114,16 +133,13 @@ def main(
             train_loader,
             model,
             optimizer,
+            max_steps=max_steps,
             eval_interval=eval_interval,
+            generate_at_eval=generate_at_eval,
             tokenizer=tokenizer,
             device=device,
         )
 
-    empty_context = torch.zeros((1, 1), dtype=torch.long, device=device)
-    print(
-        tokenizer.decode(model.generate(empty_context, max_new_tokens=500)[0].tolist())
-    )
-
 
 if __name__ == "__main__":
-    main()
+    fire.Fire(main)
