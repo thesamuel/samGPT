@@ -5,7 +5,5 @@
     <option name="pathToExecutable" value="$USER_HOME$/.pyenv/shims/black" />
     <option name="sdkName" value="Python 3.12 (samGPT)" />
   </component>
-  <component name="ProjectRootManager">
-    <output url="file://$PROJECT_DIR$/out" />
-  </component>
+  <component name="ProjectRootManager" version="2" project-jdk-name="Remote Python 3.12.0 (sftp://sam@deepmemes.samgehman.com:41414/home/sam/.virtualenvs/samGPT/bin/python)" project-jdk-type="Python SDK" />
 </project>
