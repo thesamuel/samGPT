@@ -3,15 +3,17 @@ from math import inf
 import torch
 from torch import nn
 from torch.nn import functional as F
+from typing_extensions import deprecated
 
 
+@deprecated("For reference only; use SelfAttentionHead(n_head=1, ...)")
 class SelfAttentionSingleHead(nn.Module):
     """
     Single-head self attention implementation
 
     Included for reference, should always use SelfAttentionHead
-
     """
+
     def __init__(self, head_size: int, n_embd: int, block_size: int):
         super().__init__()
         self.head_size = head_size
