@@ -74,10 +74,11 @@ def main(
     generate_at_eval: bool = True,
     epochs: int = 3,
     learning_rate: float = 1e-3,
+    kv_cache: bool = False,
 ):
     print(
         "Training with arguments:",
-        f"{block_size=} {batch_size=} {max_steps=} {n_embd=} {num_workers=} {eval_interval=} {generate_at_eval=}",
+        f"{block_size=} {batch_size=} {max_steps=} {n_embd=} {num_workers=} {eval_interval=} {generate_at_eval=} {kv_cache=}",
     )
 
     # Check if cuda is available:
@@ -123,6 +124,7 @@ def main(
         block_size=block_size,
         n_embd=n_embd,
         n_head=4,
+        cache=kv_cache,
     )
     model.to(device)
     optimizer = AdamW(model.parameters(), lr=learning_rate)

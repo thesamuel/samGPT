@@ -14,10 +14,11 @@ class SelfAttentionBlock(nn.Module):
         n_head: int,
         ff_width: int = 4,
         dropout: float = 0.2,
+        cache: bool = False,
     ):
         super().__init__()
         self.sa = nn.Sequential(
-            SelfAttentionHead(n_embd, block_size, n_head),
+            SelfAttentionHead(n_embd, block_size, n_head, cache=cache),
             nn.Linear(n_embd, n_embd),
             nn.Dropout(dropout),
         )
@@ -46,6 +47,7 @@ class LanguageModel(nn.Module):
         n_block: int = 3,
         ff_width: int = 4,
         dropout: float = 0.2,
+        cache: bool = False,
     ):
         super().__init__()
         self.block_size = block_size
@@ -54,7 +56,12 @@ class LanguageModel(nn.Module):
         self.blocks = nn.Sequential(
             *(
                 SelfAttentionBlock(
-                    n_embd, block_size, n_head, ff_width, dropout=dropout
+                    n_embd,
+                    block_size,
+                    n_head,
+                    ff_width,
+                    dropout=dropout,
+                    cache=cache,
                 )
                 for _ in range(n_block)
             )
@@ -67,6 +74,7 @@ class LanguageModel(nn.Module):
         self,
         x: torch.Tensor,
         targets: Optional[torch.Tensor] = None,
+        input_pos: int = 0,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         B, T = x.shape
 
@@ -91,10 +99,10 @@ class LanguageModel(nn.Module):
     def generate(self, x: torch.Tensor, max_new_tokens: int):
         # TODO: should this be with model.eval / torch.no_grad / torch.inference_mode?
         out = x
-        for _ in range(max_new_tokens):
+        for i in range(max_new_tokens):
             # Call the model with the previous block size of tokens
             x_cond = out[:, -self.block_size :]
-            logits, _ = self(x_cond)
+            logits, _ = self.forward(x_cond, input_pos=i)
 
             # The final row of the model output corresponds to the next token, so we slice to just that row
             logits = logits[:, -1, :]
