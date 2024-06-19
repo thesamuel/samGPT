@@ -2,6 +2,7 @@ from math import inf
 
 import numpy as np
 import torch
+from einops import rearrange
 from torch import nn
 from torch.nn import functional as F
 from typing_extensions import deprecated
@@ -35,8 +36,8 @@ class SelfAttentionSingleHead(nn.Module):
 
         # Compute attention scores ("affinities")
         wei = (
-            q @ k.transpose(-2, -1) * self.head_size**-0.5
-        )  # (B, T, C) @ (B, C, T) -> (B, T, T)
+            q @ rearrange(k, "b t c -> b c t")
+        ) * self.head_size**-0.5  # (B, T, C) @ (B, C, T) -> (B, T, T)
         wei = wei.masked_fill(self.tril[:T, :T] == 0, -inf)  # B, T, T
         wei = F.softmax(wei, dim=-1)  # (B, T, T)
 
@@ -93,12 +94,15 @@ class SelfAttentionHead(nn.Module):
         else:
             T_attn = T
 
-        q, k, v = (
-            self.attention(x)  # (B, T, C, n_embd)
-            .view((B, T_attn, 3, self.n_head, self.head_size))
-            .movedim(2, 0)
-            .transpose(2, 3)
-        )  # 3 x (B, n_head, T, head_size)
+        attn = self.attention(x)  # (B, T, C * n_head)
+        q, k, v = rearrange(
+            attn,
+            "b t (qkv nh hs) -> qkv b nh t hs",
+            qkv=3,
+            t=T_attn,
+            nh=self.n_head,
+            hs=self.head_size,
+        )
 
         if self.cache:
             # TODO: there's probably some code cleanup we could do here:
@@ -122,7 +126,7 @@ class SelfAttentionHead(nn.Module):
         out = wei @ v
 
         # Transpose the heads to the final dimensions and flatten them
-        return out.transpose(1, 2).contiguous().view(B, T, C)
+        return rearrange(out, "b nh t hs -> b t (nh hs)")
 
 
 def test_self_attention():
