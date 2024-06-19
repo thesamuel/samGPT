@@ -129,6 +129,21 @@ class SelfAttentionHead(nn.Module):
         return rearrange(out, "b nh t hs -> b t (nh hs)")
 
 
+def test_single_head_self_attention():
+    # Set seed to make the test reproducible
+    torch.manual_seed(42)
+
+    B = 4  # batch_size
+    T = 8  # time / block_size
+    C = 32  # channels / n_embd
+
+    # TODO: remove head_size (should just always be equivalent to n_embd)
+    head = SelfAttentionSingleHead(head_size=C, n_embd=C, block_size=T)
+    x = torch.ones(B, T, C)
+    y = head(x)
+    assert y.shape == (B, T, C)
+
+
 def test_self_attention():
     # Set seed to make the test reproducible
     torch.manual_seed(42)
