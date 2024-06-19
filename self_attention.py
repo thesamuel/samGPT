@@ -35,9 +35,9 @@ class SelfAttentionSingleHead(nn.Module):
         q = self.query(x)  # (B, T, C)
 
         # Compute attention scores ("affinities")
-        wei = (
-            q @ rearrange(k, "b t c -> b c t")
-        ) * self.head_size**-0.5  # (B, T, C) @ (B, C, T) -> (B, T, T)
+        # More simply: q dot k gives us a weighting over the value embeddings so that we can do a weighted average
+        # Note: we need to transpose the last two dimensions to do the tensor-multiplication (think of it as B matmuls)
+        wei = q @ k.mT * self.head_size**-0.5  # (B, T, C) @ (B, C, T) -> (B, T, T)
         wei = wei.masked_fill(self.tril[:T, :T] == 0, -inf)  # B, T, T
         wei = F.softmax(wei, dim=-1)  # (B, T, T)
 
@@ -62,7 +62,10 @@ class SelfAttentionHead(nn.Module):
         max_cache_batch_size: int = 1,
     ):
         super().__init__()
-        self.n_embd = n_embd
+        if n_embd % n_head != 0:
+            raise ValueError("n_embd must be divisible by n_head")
+
+        self.n_embd = n_embd  # Just used for shape checks
         self.n_head = n_head
         self.head_size = n_embd // n_head
         self.attention = nn.Linear(self.n_embd, 3 * self.n_embd)
@@ -79,22 +82,35 @@ class SelfAttentionHead(nn.Module):
             self.register_buffer("k_cache", torch.zeros(cache_shape))
             self.register_buffer("v_cache", torch.zeros(cache_shape))
 
+    def get_cache(
+        self, input_pos: int, T: int, k: torch.Tensor, v: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        # TODO: there's probably some code cleanup we could do here:
+        #  look at https://github.com/pytorch/pytorch/blob/df43d58/benchmarks/gpt_fast/mixtral_moe_model.py#L210
+        if input_pos == 0:
+            # Create cache
+            self.k_cache[:, :, :T] = k
+            self.v_cache[:, :, :T] = v
+        else:
+            # Update cache
+            self.k_cache[:, :, T - 1] = k.squeeze(dim=2)
+            self.v_cache[:, :, T - 1] = v.squeeze(dim=2)
+
+        # Return updated, cached values
+        return self.k_cache[:, :, :T], self.v_cache[:, :, :T]
+
     def forward(self, x: torch.Tensor, input_pos: int = 0) -> torch.Tensor:
-        # TODO: add more shape assertions throughout
-        # TODO: try using einops!
-
         B, T, C = x.shape
-
-        # C must equal the n_embd of the key, query, and value vectors
         assert C == self.n_embd
 
+        T_attn = T
         if self.cache and input_pos > 0:
+            # If caching is enabled, and we've already processed the sequence up to this point, we just need to
+            # process the newest token
             x = x[:, -1:, :]
             T_attn = 1
-        else:
-            T_attn = T
 
-        attn = self.attention(x)  # (B, T, C * n_head)
+        attn = self.attention(x)  # (B, T, 3 * C)
         q, k, v = rearrange(
             attn,
             "b t (qkv nh hs) -> qkv b nh t hs",
@@ -102,23 +118,15 @@ class SelfAttentionHead(nn.Module):
             t=T_attn,
             nh=self.n_head,
             hs=self.head_size,
-        )
+        )  # q, k, v: (B, n_head, T, head_size)
 
         if self.cache:
-            # TODO: there's probably some code cleanup we could do here:
-            #  look at https://github.com/pytorch/pytorch/blob/df43d58/benchmarks/gpt_fast/mixtral_moe_model.py#L210
-            if input_pos > 0:
-                self.k_cache[:, :, T - 1] = k.squeeze(dim=2)
-                self.v_cache[:, :, T - 1] = v.squeeze(dim=2)
-            else:
-                self.k_cache[:, :, :T] = k
-                self.v_cache[:, :, :T] = v
-            k = self.k_cache[:, :, :T]
-            v = self.v_cache[:, :, :T]
+            # Use cached k, v
+            k, v = self.get_cache(input_pos, T, k, v)
 
         # Compute attention scores ("affinities"), scaled by head size
         # (B, n_head, T, head_size) @ (B, n_head, head_size, T) -> (B, n_head, T, T)
-        wei = q @ k.transpose(-2, -1) * self.head_size**-0.5
+        wei = q @ k.mT * self.head_size**-0.5
         wei = wei.masked_fill(self.tril[:T, :T] == 0, -inf)  # (B, n_head, T, T)
         wei = F.softmax(wei, dim=-1)  # (B, n_head, T, T)
 
