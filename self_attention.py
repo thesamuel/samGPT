@@ -1,4 +1,5 @@
 from math import inf
+from typing import Optional
 
 import numpy as np
 import torch
@@ -16,34 +17,80 @@ class SelfAttentionSingleHead(nn.Module):
     Included for reference, should always use SelfAttentionHead
     """
 
-    def __init__(self, head_size: int, n_embd: int, block_size: int):
+    def __init__(
+        self,
+        n_embd: int,
+        block_size: int,
+        d_k: Optional[int] = None,
+        d_v: Optional[int] = None,
+    ):
         super().__init__()
-        self.head_size = head_size
         self.n_embd = n_embd
-        self.key = nn.Linear(self.n_embd, self.head_size, bias=False)
-        self.query = nn.Linear(self.n_embd, self.head_size, bias=False)
-        self.value = nn.Linear(self.n_embd, self.head_size, bias=False)
+
+        # Generally the dimensions are the same throughout (at least in Attention is All You Need)
+        d_k = d_k or self.n_embd
+        d_v = d_v or self.n_embd
+
+        self.key = nn.Linear(self.n_embd, d_k, bias=False)
+        self.query = nn.Linear(self.n_embd, d_k, bias=False)
+        self.value = nn.Linear(self.n_embd, d_v, bias=False)
+
         self.register_buffer("tril", torch.tril(torch.ones(block_size, block_size)))
 
     def forward(self, x):
+        """
+        Time Complexity
+        ------------
+        All the below assumes that d_k == d_v == n_embd
+        Time:
+        - q, k, and v embeddings: O(B * T * n_embd^2) [FACT CHECK THIS]
+        - Attention: O(B * T^2 * n_embd)
+            - q@k: O(B * T^2 * n_embd)
+            - wei@v: O(B * T^2 * n_embd)
+            - softmax, masked fill: O(B * T^2)
+
+        Space Complexity
+        ------------
+        TODO: complete this
+            - How much space is used for...
+                - activations?
+                    - Assuming T > n_embd: O(B * T^2) [FACT CHECK THIS]
+                - weights?
+                    # - O(n_embd^2) for weights, gradients, optimizer for q, k, v [FACT CHECK THIS]
+                - gradients, optimizer states (during training)?
+                - Are there optimizations for this?
+
+        TODO: open questions
+            - What are some previous papers on attention to read?
+            - What about follow-ups? Flash attention, etc.
+        """
         B, T, C = x.shape
 
         # C must equal the n_embd of the key, query, and value vectors
+        # Generally, C == d_k == d_v as well, but it's not required
         assert C == self.n_embd
 
-        k = self.key(x)  # (B, T, C)
-        q = self.query(x)  # (B, T, C)
+        # Complexity:
+        # - time: O(B * T * C * head_size),
+        # O(B * T * C) for activations
+        # weights: O(n_embd * n_embd)
 
+        k = self.key(x)  # (B, T, d_k)
+        q = self.query(x)  # (B, T, d_k)
+
+        # Everything after this is "Attention", as defined in "Attention is All You Need":
         # Compute attention scores ("affinities")
         # More simply: q dot k gives us a weighting over the value embeddings so that we can do a weighted average
         # Note: we need to transpose the last two dimensions to do the tensor-multiplication (think of it as B matmuls)
-        wei = q @ k.mT * self.head_size**-0.5  # (B, T, C) @ (B, C, T) -> (B, T, T)
+        scale = self.key.out_features**-0.5  # 1/sqrt(d_k)
+        wei = q @ k.mT * scale  # (B, T, d_k) @ (B, d_k, T) -> (B, T, T)
         wei = wei.masked_fill(self.tril[:T, :T] == 0, -inf)  # B, T, T
         wei = F.softmax(wei, dim=-1)  # (B, T, T)
 
         # Perform weighted aggregation of the values
-        v = self.value(x)  # (B, T, head_size)
-        return wei @ v  # (B, T, T) @ (B, T, C) -> (B, T, head_size)
+        v = self.value(x)  # (B, T, d_v)
+        # Note that if d_v != n_embd, we must project this back to n_embd before re-applying self-attention
+        return wei @ v  # (B, T, T) @ (B, T, d_v) -> (B, T, d_v)
 
 
 class SelfAttentionHead(nn.Module):
@@ -145,8 +192,7 @@ def test_single_head_self_attention():
     T = 8  # time / block_size
     C = 32  # channels / n_embd
 
-    # TODO: remove head_size (should just always be equivalent to n_embd)
-    head = SelfAttentionSingleHead(head_size=C, n_embd=C, block_size=T)
+    head = SelfAttentionSingleHead(n_embd=C, block_size=T)
     x = torch.ones(B, T, C)
     y = head(x)
     assert y.shape == (B, T, C)
