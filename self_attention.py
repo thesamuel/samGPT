@@ -48,6 +48,7 @@ class SelfAttentionSingleHead(nn.Module):
             - q@k: O(B * T^2 * n_embd)
             - wei@v: O(B * T^2 * n_embd)
             - softmax, masked fill: O(B * T^2)
+        - In total: O(T * n_embd^2 + T^2 * n_embd) [ignoring the batch dimension]
 
         Space Complexity
         ------------
